@@ -24,12 +24,14 @@ img.ph{height:90px;border-radius:6px;margin:6px 6px 0 0;background:#000}
 <header><span>Live Scanner</span><span id="cnt">0 saved</span></header>
 <div id="vw"><video id="v" playsinline muted autoplay></video><div id="msg">Camera chalu ho raha hai...</div></div>
 <div id="chips"></div><div id="sug"></div>
+<div style="padding:4px 8px"><label style="margin:0 0 4px;font-size:15px;color:#facc15">Stock me kitna hai? (qty, jitna dabba/piece abhi hai)</label><input id="qty" inputmode="numeric" placeholder="jaise 12" style="font-size:26px;text-align:center;font-weight:700"></div>
 <div class="row"><button id="sv" onclick="save()" disabled>SAVE</button><button class="g" onclick="resetAll()">Naya product</button></div>
 <form onsubmit="return false"><div id="ph"></div>
 <label>Naam (Localwell)</label><input id="name"><label>Company</label><input id="company">
 <label>MRP</label><input id="mrp" inputmode="decimal"><label>Batch</label><input id="batch"><label>Expiry</label><input id="exp"><label>Mfg</label><input id="mfg">
 <label>Barcode</label><input id="bar" inputmode="numeric"><label>Note</label><input id="note"></form>
 <div class="row"><button class="b" onclick="exp_()">Export (CSV + JSON)</button><button class="g" onclick="showList()">Saved list</button></div>
+<div class="row"><button class="r" onclick="clearLocal()">Is phone ka test data hatao</button></div>
 <div id="list"></div><div id="toast"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js"></script>
 <script>
@@ -38,8 +40,8 @@ const SB='https://rgilkxycbiuaxrznihej.supabase.co/rest/v1/scans',KEY='sb_publis
 let SRV=[],online=null;
 function who(){let n='';try{n=localStorage.getItem('sn')||''}catch(e){}if(!n){n=(prompt('Aapka naam likho (jaise Ramiz, Rehan):')||'').trim()||'Unknown';try{localStorage.setItem('sn',n)}catch(e){}}return n}
 const $=i=>document.getElementById(i);let worker=null,db,prev=null,running=false;
-const F=[['company','Company'],['name','Naam'],['mrp','MRP'],['batch','Batch'],['exp','Expiry'],['bar','Barcode']];
-const REQ=['company','name','mrp','batch','exp'];   // barcode optional
+const F=[['company','Company'],['name','Naam'],['mrp','MRP'],['batch','Batch'],['exp','Expiry'],['qty','Stock qty'],['bar','Barcode']];
+const REQ=['company','name','mrp','batch','exp','qty'];   // barcode optional
 let S;function fresh(){S={cand:{},bag:new Set(),txt:'',best:{front:{s:0,p:null},back:{s:0,p:null}},sug:[],done:false}}fresh();
 const NK=s=>s.toUpperCase().replace(/[^A-Z0-9]/g,'');
 const COMP=[...new Set(PRODS.map(p=>p[1]).filter(c=>c.length>=3))].sort((a,b)=>b.length-a.length);
@@ -53,20 +55,24 @@ function dupOf(){const n=NK($('name').value||'');if(!n)return null;const m=$('mr
 (async()=>{try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});$('v').srcObject=s;$('v').onloadedmetadata=start;if($('v').readyState>1)start()}catch(e){msg('Camera nahi khula: '+e.message+' (https link se kholo)','')}})();
 function msg(t,c){const m=$('msg');m.textContent=t;m.className=c;$('vw').className=c}
 // ---- image helpers
-function grab(w){const v=$('v'),c=document.createElement('canvas');c.width=Math.min(w,v.videoWidth);c.height=Math.round(v.videoHeight*c.width/v.videoWidth);c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c}
+function grab(w){const v=$('v'),c=document.createElement('canvas'),sx=v.videoWidth*.06,sy=v.videoHeight*.08,sw=v.videoWidth*.88,sh=v.videoHeight*.84;c.width=Math.min(w,sw);c.height=Math.round(sh*c.width/sw);c.getContext('2d').drawImage(v,sx,sy,sw,sh,0,0,c.width,c.height);return c}
 function lap(c){const w=160,h=Math.round(c.height*w/c.width),t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(c,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=new Float32Array(w*h);for(let i=0;i<w*h;i++)g[i]=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];let s=0,s2=0,n=0;for(let y=1;y<h-1;y++)for(let xx=1;xx<w-1;xx++){const i=y*w+xx,l=4*g[i]-g[i-1]-g[i+1]-g[i-w]-g[i+w];s+=l;s2+=l*l;n++}return s2/n-(s/n)*(s/n)}
 function tiny(c){const t=document.createElement('canvas');t.width=32;t.height=18;const x=t.getContext('2d');x.drawImage(c,0,0,32,18);const d=x.getImageData(0,0,32,18).data,a=[];for(let i=0;i<d.length;i+=4)a.push(d[i]*.3+d[i+1]*.59+d[i+2]*.11);return a}
 function motion(a){if(!prev){prev=a;return 0}let s=0;for(let i=0;i<a.length;i++)s+=Math.abs(a[i]-prev[i]);prev=a;return s/a.length}
 function small(c,w=700){const t=document.createElement('canvas');t.width=Math.min(w,c.width);t.height=Math.round(c.height*t.width/c.width);t.getContext('2d').drawImage(c,0,0,t.width,t.height);return t.toDataURL('image/jpeg',.78)}
 function prep(c){const t=document.createElement('canvas');t.width=c.width;t.height=c.height;const x=t.getContext('2d');try{x.filter='grayscale(1) contrast(1.35)'}catch(e){}x.drawImage(c,0,0);return t}
 // ---- extraction
-const D='(\\d{1,2}\\s?[\\/\\-\\.]\\s?\\d{2,4}|[A-Z]{3,9}[\\s\\-\\.\\/]{0,2}\\d{2,4})';
+const D='(\\d{1,2}\\s?[\\/\\-\\.]\\s?\\d{2,4}|\\d{2}\\s\\d{4}|[A-Z]{3,9}[\\s\\-\\.\\/\']{0,3}\\d{2,4})';
+const MN={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+function parseMY(s){s=(s||'').toUpperCase();let m,y;let x=s.match(/^(\d{1,2})[\/\-\.\s](\d{2,4})$/);if(x){m=+x[1];y=+x[2]}else{x=s.match(/^([A-Z]{3})[A-Z]*[\s\-\.\/']*(\d{2,4})$/);if(x&&MN[x[1]]){m=MN[x[1]];y=+x[2]}else{x=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);if(x){m=+x[2];y=+x[3]}}}if(!m||m<1||m>12)return null;if(y<100)y+=2000;return{m,y}}
+function addMonths(s,n){const p=parseMY(s);if(!p)return null;let k=p.y*12+(p.m-1)+n-1;return String(k%12+1).padStart(2,'0')+'/'+Math.floor(k/12)}
 function extract(t){const T=t.replace(/[|]/g,'I'),o={},m=(re)=>{const r=T.match(re);return r?r[1].trim():null};
- let mrp=m(/(?:M\.?\s?R\.?\s?P\.?)[^0-9\n]{0,20}(\d{1,5}(?:[.,]\d{1,2})?)/i)||m(/(?:₹|Rs\.?)\s?(\d{1,5}(?:[.,]\d{1,2})?)/i);
- if(mrp){mrp=mrp.replace(',','.');const n=parseFloat(mrp);if(n>=1&&n<=20000)o.mrp=String(n)}
+ let mrp=m(/(?:M\.?\s?R\.?\s?P\.?|MAXIMUM\s*RETAIL\s*PRICE)[^0-9]{0,45}(\d{1,2}[,]?\d{0,3}(?:[.]\d{1,2})?)/i)||m(/(?:₹|Rs\.?|INR)\s?(\d{1,2}[,]?\d{0,3}(?:[.]\d{1,2})?)/i)||m(/\b(\d{2,5}(?:[.,]\d{2})?)\s?\/\s?-/)||m(/(?:INCL|INCLUSIVE)[^0-9]{0,40}(\d{2,5}(?:[.,]\d{2})?)/i);
+ if(mrp){mrp=mrp.replace(/,(?=\d{3}(?!\d))/g,'').replace(',','.');const n=parseFloat(mrp);if(n>=1&&n<=20000)o.mrp=String(n)}
  let b=m(/(?:B\.?\s?NO\.?|BATCH\s?(?:NO\.?)?|B\/N|LOT\s?(?:NO\.?)?)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i);if(b&&/\d/.test(b)&&b.length<=15)o.batch=b.toUpperCase();
- let e=m(new RegExp('(?:EXP(?:IRY)?\\.?(?:\\s?DATE)?|USE\\s?BEFORE|BEST\\s?BEFORE)\\s*[:.\\-]?\\s*'+D,'i'));if(e)o.exp=e.toUpperCase().replace(/\s+/g,'');
- let f=m(new RegExp('(?:MFG\\.?|MFD\\.?|MANUF[A-Z.]*\\s?DATE)\\s*[:.\\-]?\\s*'+D,'i'));if(f)o.mfg=f.toUpperCase().replace(/\s+/g,'');
+ let e=m(new RegExp('(?:EXP(?:IRY)?\\.?(?:\\s?(?:DATE|DT)\\.?)?|E\\.?D\\.?|USE\\s?BY|EXPIRES?)\\s*[:.\\-]?\\s*'+D,'i'));if(e)o.exp=e.toUpperCase().replace(/\s+/g,' ').trim();
+ let f=m(new RegExp('(?:MFG\\.?|MFD\\.?|M\\.?F\\.?G\\.?|MANUF[A-Z.]*|DATE\\s?OF\\s?(?:MFG|MANUFACTURE|MANUFACTURING)|D\\.?O\\.?M\\.?)\\s*(?:DATE|DT|ON)?\\.?\\s*[:.\\-]?\\s*'+D,'i'));if(f)o.mfg=f.toUpperCase().replace(/\s+/g,' ').trim();
+ let sl=m(/(?:BEST\s*BEFORE|USE\s*(?:WITHIN|BEFORE)|SHELF\s*LIFE|VALID\s*FOR|EXPIRY|EXP\.?)[^0-9\n]{0,30}(\d{1,3})\s*(?:MONTHS?|MTHS?|MOS?)\b/i);if(sl&&+sl>=3&&+sl<=60)o.shelf=sl;
  let br=m(/\b(\d{8,14})\b/);if(br)o.bar=br;
  return o}
 function addCand(k,v){if(!v)return;const c=S.cand[k]=S.cand[k]||{};c[v]=(c[v]||0)+1}
@@ -74,10 +80,10 @@ function topv(k){const c=S.cand[k];if(!c)return null;let b=null,n=0;for(const v 
 function findCompany(txt){const N=' '+txt.toUpperCase().replace(/[^A-Z0-9]+/g,' ')+' ';for(const c of COMP){const k=' '+c.toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim()+' ';if(N.includes(k))return c}return null}
 function matchProd(){ // Localwell name suggestion from words seen so far
  const bag=S.bag;if(bag.size<2)return[];const mrp=topv('mrp');const out=[];
- for(const p of PRODS){const toks=p[0].toUpperCase().split(/[^A-Z0-9]+/).filter(t=>t.length>=2);if(!toks.length)continue;let hit=0,tot=0;
-  for(const t of toks){const w=/\d/.test(t)?2:1.2;tot+=w;if(bag.has(t))hit+=w;else if(t.length>=5){for(const x of bag){if(x.length>=5&&Math.abs(x.length-t.length)<=1&&lev(x,t)<=1){hit+=w*.8;break}}}}
+ for(const p of PRODS){const toks=p[0].toUpperCase().split(/[^A-Z0-9]+/).filter(t=>t.length>=2);if(!toks.length)continue;let hit=0,tot=0,hd=0,hn=0;
+  for(const t of toks){const w=/\d/.test(t)?2:1.2;tot+=w;if(bag.has(t)){hit+=w;if(/\d/.test(t))hn++;else if(t.length>=4)hd++}else if(t.length>=5){for(const x of bag){if(x.length>=5&&Math.abs(x.length-t.length)<=1&&lev(x,t)<=1){hit+=w*.8;break}}}}
   let sc=hit/tot;if(S.cand.company){const c=topv('company').v;if(p[1].toUpperCase()===c.toUpperCase())sc+=.12}
-  if(mrp&&p[2].includes(Math.round(parseFloat(mrp.v))))sc+=.12;if(sc>=.5)out.push([p,Math.min(sc,1)])}
+  if(mrp&&p[2].includes(Math.round(parseFloat(mrp.v))))sc+=.12;const cmOK=S.cand.company&&p[1].toUpperCase()===topv('company').v.toUpperCase();if(sc>=.6&&(hd>=2||(hd>=1&&hn>=1&&cmOK)))out.push([p,Math.min(sc,1)])}
  out.sort((a,b)=>b[1]-a[1]);return out.slice(0,3)}
 function lev(a,b){const m=a.length,n=b.length,d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);for(let j=1;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n]}
 // ---- live loop
@@ -85,54 +91,60 @@ function start(){if(running)return;running=true;loop()}
 async function loop(){try{await tick()}catch(e){console.log(e)}setTimeout(loop,120)}
 async function tick(){
  const v=$('v');if(!v.videoWidth||S.done){return}
- const c=grab(1280),sh=lap(c),mo=motion(tiny(c));
+ if(S.complete){await new Promise(r=>setTimeout(r,400));return}
+ const c=grab(1100),sh=lap(c),mo=motion(tiny(c));
  if(mo>14||sh<18){msg('✋ Hold still karo (hil raha hai / dhundhla hai)','');await new Promise(r=>setTimeout(r,250));return}
  if(!worker){msg('Padhne ka engine load ho raha hai...','wait');try{worker=await Tesseract.createWorker('eng')}catch(e){msg('Engine load nahi hua, net check karo','');return}}
  msg('Padh raha hoon... product ko aise hi rakho','wait');
  if('BarcodeDetector' in window){try{const r=await new BarcodeDetector().detect(c);r.forEach(x=>addCand('bar',x.rawValue))}catch(e){}}
- const r=await worker.recognize(prep(c));const t=r.data.text||'';S.txt+='\n'+t;
+ const r=await worker.recognize(prep(c));const t=r.data.text||'';const cf=(r.data.confidence===undefined?100:r.data.confidence);if(cf<50){msg('Text saaf nahi dikh raha, label ke paas lao / roshni badhao','');return}S.txt+='\n'+t;
  t.toUpperCase().split(/[^A-Z0-9]+/).forEach(w=>{if(w.length>=2)S.bag.add(w)});
  const ex=extract(t);for(const k in ex)addCand(k,ex[k]);
  const co=findCompany(t);if(co)addCand('company',co);
  const sg=matchProd();S.sug=sg;
  // best photos: front = frame with strongest name/company match, back = frame where MRP/batch found
- const frontScore=(sg[0]?sg[0][1]:0)+(co?.5:0);
+ const frontScore=(sg[0]&&sg[0][1]>=.75)?sg[0][1]:0;
  if(frontScore>0&&sh*(1+frontScore)>S.best.front.s){S.best.front={s:sh*(1+frontScore),p:small(c)}}
- if((ex.mrp||ex.batch||ex.exp)&&sh>S.best.back.s){S.best.back={s:sh,p:small(c)}}
+ if(((ex.mrp&&ex.batch)||(ex.mrp&&ex.exp)||(ex.batch&&ex.exp))&&sh>S.best.back.s){S.best.back={s:sh,p:small(c)}}
  render()}
 function val(k){if(k==='name'){return $('name').dataset.lock||($('name').value||null)}return null}
 function render(){
  const cur={};
  const cm=topv('company');if(cm&&!$('company').dataset.manual)$('company').value=cm.v;
- if(S.sug[0]&&S.sug[0][1]>=.6&&!$('name').dataset.manual){$('name').value=S.sug[0][0][0];if(!$('company').value&&!$('company').dataset.manual)$('company').value=S.sug[0][0][1]}
+ if(S.sug[0]&&S.sug[0][1]>=.8&&!$('name').dataset.manual){$('name').value=S.sug[0][0][0];if(!$('company').value&&!$('company').dataset.manual)$('company').value=S.sug[0][0][1]}
  for(const k of ['mrp','batch','exp','mfg','bar']){const t=topv(k);if(t&&!$(k).dataset.manual)$(k).value=t.v}
+ let calc=false;if(!topv('exp')&&topv('mfg')&&topv('shelf')&&!$('exp').dataset.manual){const ce=addMonths(topv('mfg').v,parseInt(topv('shelf').v));if(ce){$('exp').value=ce;calc=true}}
  const st={};
  st.company={v:$('company').value,ok:cm?cm.n>=2:!!$('company').value};
  st.name={v:$('name').value,ok:S.sug[0]?S.sug[0][1]>=.75:!!$('name').dataset.manual};
+st.qty={v:$('qty').value.trim(),ok:$('qty').value.trim()!==''};
  for(const k of ['mrp','batch','exp','bar']){const t=topv(k);st[k]={v:$(k).value,ok:t?t.n>=2:!!$(k).dataset.manual}}
+ if(calc){const mt=topv('mfg');st.exp={v:$('exp').value+' (mfg+'+topv('shelf').v+'m)',ok:mt.n>=2}}
  $('chips').innerHTML=F.map(([k,l])=>{const s=st[k];const cls=s.v?(s.ok?'gr':'am'):'';return `<div class="c ${cls}"><b>${l}${k==='bar'?' (optional)':''}</b><span>${s.v||'— khali —'}</span></div>`}).join('');
  $('sug').innerHTML=S.sug.map((x,i)=>`<button onclick="pick(${i})">${x[0][0]} · ${x[0][1]} (${Math.round(x[1]*100)}%)</button>`).join('');
  const miss=REQ.filter(k=>!st[k].v),shaky=REQ.filter(k=>st[k].v&&!st[k].ok);
+ S.complete=!miss.length&&!shaky.length;
  if(!miss.length&&!shaky.length){msg('✅ Complete! SAVE dabao','ok');beep()}
  else if(!miss.length){msg('Lagbhag ho gaya, '+shaky.map(k=>st[k].v&&F.find(f=>f[0]===k)[1]).join(', ')+' ek aur baar dikhao','wait')}
  else{const back=['mrp','batch','exp'].filter(k=>miss.includes(k)),front=miss.filter(k=>k==='company'||k==='name');
-  msg(front.length?'Saamne ka hissa dikhao ('+front.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)':'Dabba ghumao: peeche/neeche ('+back.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)','')}
+  if(!front.length&&!back.length)msg('Neeche "Stock me kitna hai" me qty bharo','wait');else msg(front.length?'Saamne ka hissa dikhao ('+front.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)':'Dabba ghumao: peeche/neeche ('+back.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)','')}
  $('ph').innerHTML=(S.best.front.p?'<img class="ph" src="'+S.best.front.p+'">':'')+(S.best.back.p?'<img class="ph" src="'+S.best.back.p+'">':'');
  const dp=dupOf();if(dp){msg('⚠ Ye product PEHLE SCAN ho chuka hai: '+dp.name+(dp.batch?' (batch '+dp.batch+')':'')+' — '+(dp.scanner||'koi')+', '+String(dp.created_at||'').slice(0,10)+'. Doosra dabba lo','')}
- $('sv').disabled=!$('name').value.trim()}
+ $('sv').disabled=!$('name').value.trim()||$('qty').value.trim()===''}
 let beeped=false;function beep(){if(beeped)return;beeped=true;try{navigator.vibrate&&navigator.vibrate(200)}catch(e){}}
 function pick(i){const p=S.sug[i][0];$('name').value=p[0];$('name').dataset.manual='1';$('company').value=p[1];$('company').dataset.manual='1';render()}
 document.addEventListener('input',e=>{if(e.target.tagName==='INPUT')e.target.dataset.manual='1'});
-function resetAll(){fresh();prev=null;beeped=false;['name','company','mrp','batch','exp','mfg','bar','note'].forEach(i=>{$(i).value='';delete $(i).dataset.manual});$('ph').innerHTML='';$('chips').innerHTML='';$('sug').innerHTML='';msg('Naya product dikhao','');render()}
-async function save(){if(!$('name').value.trim())return;const dp=dupOf();if(dp&&!confirm('Ye product pehle scan ho chuka hai: '+dp.name+(dp.batch?' (batch '+dp.batch+')':'')+' — '+(dp.scanner||'koi')+'.\nDobara bhi save karein? (Doosra batch ho to haan)'))return;
- const rec={time:new Date().toISOString(),name:$('name').value.trim(),company:$('company').value.trim(),mrp:$('mrp').value.trim(),batch:$('batch').value.trim(),expiry:$('exp').value.trim(),mfg:$('mfg').value.trim(),barcode:$('bar').value.trim(),note:$('note').value.trim(),raw:S.txt,photo_front:S.best.front.p,photo_back:S.best.back.p,scanner:who(),synced:false};
+function resetAll(){fresh();prev=null;beeped=false;['name','company','mrp','batch','exp','mfg','bar','note','qty'].forEach(i=>{$(i).value='';delete $(i).dataset.manual});$('ph').innerHTML='';$('chips').innerHTML='';$('sug').innerHTML='';msg('Naya product dikhao','');render()}
+async function save(){if(!$('name').value.trim())return;if($('qty').value.trim()===''||isNaN(parseFloat($('qty').value))){toast('Pehle stock qty bharo (0 bhi chalega)');return}const dp=dupOf();if(dp&&!confirm('Ye product pehle scan ho chuka hai: '+dp.name+(dp.batch?' (batch '+dp.batch+')':'')+' — '+(dp.scanner||'koi')+'.\nDobara bhi save karein? (Doosra batch ho to haan)'))return;
+ const rec={time:new Date().toISOString(),name:$('name').value.trim(),company:$('company').value.trim(),mrp:$('mrp').value.trim(),batch:$('batch').value.trim(),expiry:$('exp').value.trim(),mfg:$('mfg').value.trim(),barcode:$('bar').value.trim(),qty:parseFloat($('qty').value),note:$('note').value.trim(),raw:S.txt,photo_front:S.best.front.p,photo_back:S.best.back.p,scanner:who(),synced:false};
  await new Promise(r=>{const q=tx('readwrite').add(rec);q.onsuccess=r});toast('Save ho gaya ✔  Agla product dikhao');resetAll();await count();sync()}
 async function sync(){try{const a=(await all()).filter(x=>!x.synced);for(const x of a){const {id,synced,time,...body}=x;const res=await fetch(SB,{method:'POST',headers:{...H,Prefer:'return=minimal'},body:JSON.stringify(body)});if(!res.ok)throw new Error(await res.text());await new Promise(r=>{const q=tx('readwrite').put({...x,synced:true});q.onsuccess=r})}online=true}catch(e){online=false;console.log(e)}await pull();count()}
 async function pull(){try{const res=await fetch(SB+'?select=name,company,mrp,batch,expiry,barcode,scanner,created_at&order=created_at.desc&limit=5000',{headers:H});if(!res.ok)throw new Error(await res.text());SRV=await res.json();online=true}catch(e){online=false}}
 setInterval(sync,20000);setTimeout(sync,1500);
-async function showList(){const a=await all();$('list').innerHTML=a.slice().reverse().map(r=>`<div class="it">${r.photo_front?'<img src="'+r.photo_front+'">':''}<div style="flex:1"><b>${r.name}</b><br>MRP ${r.mrp||'-'} · Batch ${r.batch||'-'} · Exp ${r.expiry||'-'}</div><button class="r" style="flex:none;padding:8px 10px;font-size:13px" onclick="del(${r.id})">X</button></div>`).join('')||'Abhi kuch save nahi'}
+async function showList(){const a=await all();$('list').innerHTML=a.slice().reverse().map(r=>`<div class="it">${r.photo_front?'<img src="'+r.photo_front+'">':''}<div style="flex:1"><b>${r.name}</b><br>Qty <b>${r.qty??'-'}</b> · MRP ${r.mrp||'-'} · Batch ${r.batch||'-'} · Exp ${r.expiry||'-'}</div><button class="r" style="flex:none;padding:8px 10px;font-size:13px" onclick="del(${r.id})">X</button></div>`).join('')||'Abhi kuch save nahi'}
+async function clearLocal(){if(!confirm('Is phone me save hue SAARE scans hata dein? (Supabase ka data nahi hatega)'))return;await new Promise(r=>{const q=tx('readwrite').clear();q.onsuccess=r});await count();showList();toast('Is phone ka local data hat gaya')}
 async function del(id){if(!confirm('Hata dein?'))return;await new Promise(r=>{const q=tx('readwrite').delete(id);q.onsuccess=r});count();showList()}
 function dl(n,t,d){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([d],{type:t}));a.download=n;a.click()}
 async function exp_(){const a=await all();if(!a.length){toast('Kuch save nahi hai');return}const d=new Date().toISOString().slice(0,10),q=s=>'"'+String(s||'').replace(/"/g,'""')+'"';
- dl('scans_'+d+'.csv','text/csv','﻿Name,Company,MRP,Batch,Expiry,Mfg,Barcode,Note,Time\n'+a.map(r=>[r.name,r.company,r.mrp,r.batch,r.expiry,r.mfg,r.barcode,r.note,r.time].map(q).join(',')).join('\n'));setTimeout(()=>dl('scans_'+d+'.json','application/json',JSON.stringify(a)),600)}
+ dl('scans_'+d+'.csv','text/csv','﻿Name,Company,MRP,Batch,Expiry,Mfg,Barcode,Qty,Note,Time\n'+a.map(r=>[r.name,r.company,r.mrp,r.batch,r.expiry,r.mfg,r.barcode,r.qty,r.note,r.time].map(q).join(',')).join('\n'));setTimeout(()=>dl('scans_'+d+'.json','application/json',JSON.stringify(a)),600)}
 </script></body></html>
