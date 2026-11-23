@@ -26,6 +26,7 @@ img.ph{height:90px;border-radius:6px;margin:6px 6px 0 0;background:#000}
 <div id="chips"></div><div id="sug"></div><div id="alts" style="padding:0 8px"></div>
 <div style="padding:4px 8px"><input id="q" placeholder="🔍 Product dhundo: naam/company ke 3-4 akshar" autocomplete="off"></div><div id="qr" style="padding:0 8px"></div>
 <div style="padding:4px 8px"><label style="margin:0 0 4px;font-size:15px;color:#facc15">Stock me kitna hai? (qty, jitna dabba/piece abhi hai)</label><input id="qty" inputmode="numeric" placeholder="jaise 12" style="font-size:26px;text-align:center;font-weight:700"></div>
+<div class="row"><button class="b" id="bstill" onclick="stillScan()">📸 Peeche ki SAAF photo (batch / expiry / MRP)</button></div>
 <div class="row"><button id="sv" onclick="save()" disabled>SAVE</button><button class="g" onclick="resetAll()">Naya product</button></div>
 <form onsubmit="return false"><div id="ph"></div>
 <label>Naam (Localwell)</label><input id="name"><label>Company</label><input id="company">
@@ -103,7 +104,9 @@ async function loop(){try{await tick()}catch(e){console.log(e)}setTimeout(loop,1
 async function tick(){
  const v=$('v');if(!v.videoWidth||S.done){return}
  if(S.complete){render();await new Promise(r=>setTimeout(r,400));return}
- const c=grab(1100),sh=lap(c),mo=motion(tiny(c));
+ if(window.stillBusy){await new Promise(r=>setTimeout(r,300));return}
+ const c=grab(1100),tn=tiny(c),sh=lap(c),mo=motion(tn);
+ const br=tn.reduce((a,b)=>a+b,0)/tn.length;if(br<8){msg('📷 Camera kaala dikh raha hai: lens khula rakho ya page refresh karo','');try{v.play()}catch(e){}await new Promise(r=>setTimeout(r,500));return}
  if(mo>14||sh<18){msg('✋ Hold still karo (hil raha hai / dhundhla hai)','');await new Promise(r=>setTimeout(r,250));return}
  if(!worker){msg('Padhne ka engine load ho raha hai...','wait');try{worker=await Tesseract.createWorker('eng')}catch(e){msg('Engine load nahi hua, net check karo','');return}}
  msg('Padh raha hoon... product ko aise hi rakho','wait');
@@ -125,16 +128,19 @@ function render(){
  if(S.sug[0]&&S.sug[0][1]>=.8&&!$('name').dataset.manual){$('name').value=S.sug[0][0][0];if(!$('company').value&&!$('company').dataset.manual)$('company').value=S.sug[0][0][1]}
  for(const k of ['mrp','batch','exp','mfg','bar']){const t=topv(k);if(t&&!$(k).dataset.manual)$(k).value=t.v}
  let calc=false;if(!topv('exp')&&topv('mfg')&&topv('shelf')&&!$('exp').dataset.manual){const ce=addMonths(topv('mfg').v,parseInt(topv('shelf').v));if(ce){$('exp').value=ce;calc=true}}
+ const cp0=curProd();if(cp0&&cp0[2].length===1&&!$('mrp').value&&!$('mrp').dataset.manual)$('mrp').value=String(cp0[2][0]);
  const st={};
  st.company={v:$('company').value,ok:cm?cm.n>=2:!!$('company').value};
  st.name={v:$('name').value,ok:S.sug[0]?S.sug[0][1]>=.75:!!$('name').dataset.manual};
 st.qty={v:$('qty').value.trim(),ok:$('qty').value.trim()!==''};
  for(const k of ['mrp','batch','exp','bar']){const t=topv(k);st[k]={v:$(k).value,ok:t?t.n>=2:!!$(k).dataset.manual}}
  if(calc){const mt=topv('mfg');st.exp={v:$('exp').value+' (mfg+'+topv('shelf').v+'m)',ok:mt.n>=2}}
+ if(cp0&&cp0[2].length&&st.mrp.v&&!topv('mrp')&&cp0[2].map(String).includes(st.mrp.v))st.mrp.ok=true;
  $('chips').innerHTML=F.map(([k,l])=>{const s=st[k];const cls=s.v?(s.ok?'gr':'am'):'';return `<div class="c ${cls}"><b>${l}${k==='bar'?' (optional)':''}</b><span>${s.v||'— khali —'}</span></div>`}).join('');
  let cs=[];const cn=$('company').value,mv=parseFloat($('mrp').value);if(!S.sug.length&&cn&&!$('name').dataset.manual){const L=PRODS.map((p,i)=>[p,i]).filter(([p])=>p[1].toUpperCase()===cn.toUpperCase());let M=L.filter(([p])=>mv&&p[2].includes(Math.round(mv)));cs=(M.length?M:L).slice(0,8)}
  $('sug').innerHTML=(cs.length?'<div style="width:100%;font-size:12px;color:#9ca3af">'+cn+' ke products'+(mv?' (MRP '+mv+')':'')+': naam chuno</div>':'')+cs.map(([p,i])=>`<button onclick="pickP(${i})">${p[0]}</button>`).join('')+S.sug.map((x,i)=>`<button onclick="pick(${i})">${x[0][0]} · ${x[0][1]} (${Math.round(x[1]*100)}%)</button>`).join('');
- let al='';for(const [k,l] of [['batch','Batch'],['exp','Expiry'],['mrp','MRP']]){const c=S.cand[k];if(c){const e=Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,4);if(e.length>1)al+='<div style="font-size:12px;color:#9ca3af;margin-top:4px">'+l+' aur padha gaya:</div>'+e.map(([v,n])=>`<button style="flex:none;padding:6px 10px;font-size:13px;background:#374151;margin:2px" onclick="setv('${k}','${v.replace(/'/g,'')}')">${v} (${n})</button>`).join('')}}
+ let al='';for(const [k,l] of [['batch','Batch'],['exp','Expiry'],['mrp','MRP']]){const c=S.cand[k];if(c){const e=Object.entries(c).filter(([v,n])=>!(k==='mrp'&&(parseFloat(v)<10&&n<3))).sort((a,b)=>b[1]-a[1]).slice(0,4);if(e.length>1)al+='<div style="font-size:12px;color:#9ca3af;margin-top:4px">'+l+' aur padha gaya:</div>'+e.map(([v,n])=>`<button style="flex:none;padding:6px 10px;font-size:13px;background:#374151;margin:2px" onclick="setv('${k}','${v.replace(/'/g,'')}')">${v} (${n})</button>`).join('')}}
+ const cp=curProd();if(cp&&cp[2].length){if(cp[2].length>1||(cp[2].length===1&&$('mrp').value&&String(cp[2][0])!==$('mrp').value))al+='<div style="font-size:12px;color:#facc15;margin-top:4px">Purchase me is product ka MRP:</div>'+cp[2].map(v=>`<button style="flex:none;padding:6px 10px;font-size:13px;background:#92400e;margin:2px" onclick="setv('mrp','${v}')">${v}</button>`).join('')}
  $('alts').innerHTML=al;
  const miss=REQ.filter(k=>!st[k].v),shaky=REQ.filter(k=>st[k].v&&!st[k].ok);
  S.complete=!miss.length&&!shaky.length;if(!S.complete&&['company','mrp','batch','exp'].every(k=>st[k].v&&st[k].ok))S.complete=true;
@@ -149,6 +155,27 @@ let beeped=false;function beep(){if(beeped)return;beeped=true;try{navigator.vibr
 document.addEventListener('DOMContentLoaded',()=>{});
 $('q').addEventListener('input',()=>{const w=$('q').value.toUpperCase().split(/\s+/).filter(x=>x);if(!w.length){$('qr').innerHTML='';return}const L=PRODS.map((p,i)=>[p,i]).filter(([p])=>{const s=(p[0]+' '+p[1]).toUpperCase();return w.every(x=>s.includes(x))}).slice(0,8);$('qr').innerHTML=L.map(([p,i])=>`<button style="display:block;width:100%;margin:3px 0;padding:10px;font-size:14px;background:#374151;text-align:left" onclick="pickP(${i})">${p[0]} <span style="opacity:.7">· ${p[1]}${p[2].length?' · MRP '+p[2].join('/'):''}</span></button>`).join('')||'<div style="font-size:13px;color:#9ca3af">Kuch nahi mila</div>'});
 function pickP(i){const p=PRODS[i];$('name').value=p[0];$('name').dataset.manual='1';$('company').value=p[1];$('company').dataset.manual='1';if(p[2].length===1&&!$('mrp').value){$('mrp').value=p[2][0]}$('q').value='';$('qr').innerHTML='';render()}
+
+async function stillScan(){
+ const v=$('v');if(!v.videoWidth){toast('Camera chalu nahi hai');return}
+ window.stillBusy=true;$('bstill').disabled=true;
+ try{
+  if(!worker){msg('Padhne ka engine load ho raha hai...','wait');worker=await Tesseract.createWorker('eng')}
+  msg('📸 Saaf photo le raha hoon, haath sthir rakho...','wait');await new Promise(r=>setTimeout(r,700));
+  const c=document.createElement('canvas'),sx=v.videoWidth*.04,sy=v.videoHeight*.06,sw=v.videoWidth*.92,sh=v.videoHeight*.88;c.width=sw;c.height=sh;c.getContext('2d').drawImage(v,sx,sy,sw,sh,0,0,sw,sh);
+  if('BarcodeDetector' in window){try{const r=await new BarcodeDetector().detect(c);r.forEach(x=>addCand('bar',x.rawValue))}catch(e){}}
+  for(let i=0;i<2;i++){msg('📸 Saaf photo padh raha hoon '+(i+1)+'/2 (10-15 second lagenge)...','wait');
+   const r=await worker.recognize(prep(c,i));const t=r.data.text||'';S.txt+='\n'+t;
+   t.toUpperCase().split(/[^A-Z0-9]+/).forEach(w=>{if(w.length>=2)S.bag.add(w)});
+   const ex=extract(t);for(const k in ex){addCand(k,ex[k]);addCand(k,ex[k])}   // saaf photo ka vote 2 ginta hai
+   const co=findCompany(t)||findCompany(S.txt);if(co)addCand('company',co)}
+  S.sug=matchProd();S.complete=false;
+  const p=small(c);if(!S.best.back.p||true)S.best.back={s:9999,p};
+  render();toast('Saaf photo padh li, ek baar check karo')
+ }catch(e){toast('Saaf photo nahi padh payi: '+e.message)}
+ window.stillBusy=false;$('bstill').disabled=false}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){try{$('v').play()}catch(e){}}});
+function curProd(){const n=($('name').value||'').trim().toUpperCase();return n?PRODS.find(p=>p[0].toUpperCase()===n):null}
 function setv(k,v){$(k==='exp'?'exp':k).value=v;$(k==='exp'?'exp':k).dataset.manual='1';render()}
 function pick(i){const p=S.sug[i][0];$('name').value=p[0];$('name').dataset.manual='1';$('company').value=p[1];$('company').dataset.manual='1';render()}
 document.addEventListener('input',e=>{if(e.target.tagName==='INPUT')e.target.dataset.manual='1'});
