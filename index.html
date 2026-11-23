@@ -23,7 +23,7 @@ img.ph{height:90px;border-radius:6px;margin:6px 6px 0 0;background:#000}
 </style></head><body>
 <header><span>Live Scanner</span><span id="cnt">0 saved</span></header>
 <div id="vw"><video id="v" playsinline muted autoplay></video><div id="msg">Camera chalu ho raha hai...</div></div>
-<div id="chips"></div><div id="sug"></div>
+<div id="chips"></div><div id="sug"></div><div id="alts" style="padding:0 8px"></div>
 <div style="padding:4px 8px"><input id="q" placeholder="🔍 Product dhundo: naam/company ke 3-4 akshar" autocomplete="off"></div><div id="qr" style="padding:0 8px"></div>
 <div style="padding:4px 8px"><label style="margin:0 0 4px;font-size:15px;color:#facc15">Stock me kitna hai? (qty, jitna dabba/piece abhi hai)</label><input id="qty" inputmode="numeric" placeholder="jaise 12" style="font-size:26px;text-align:center;font-weight:700"></div>
 <div class="row"><button id="sv" onclick="save()" disabled>SAVE</button><button class="g" onclick="resetAll()">Naya product</button></div>
@@ -73,18 +73,18 @@ function fixNum(s){return s.replace(/[Oo]/g,'0').replace(/[Il|]/g,'1').replace(/
 function mrpFrom(T){let seg='',ix=T.search(/M\.?\s?R\.?\s?P\.?|RETAIL\s*PRICE/i);
  if(ix>=0){seg=T.slice(ix,ix+110).replace(/^(?:M\.?\s?R\.?\s?P\.?|MAX(?:IMUM)?\.?\s*RETAIL\s*PRICE|RETAIL\s*PRICE)/i,'');
   let x=seg.match(/(?:RS|R5|R\$|₹|INR)\s*[.:]?\s*((?:[0-9OoIl|SB]{1,2},[0-9]{3}|[0-9OoIl|SB]{1,5})(?:[.,][0-9OoIlSB]{1,2})?)/i);if(x){const v=fixNum(x[1]).replace(/,(?=\d{3}(?!\d))/g,'').replace(',','.');if(/^\d+(\.\d+)?$/.test(v))return v}
-  x=seg.match(/(\d{1,2},?\d{0,3}(?:\.\d{1,2})?)/);if(x)return x[1].replace(/,(?=\d{3}(?!\d))/g,'').replace(',','.')}
+  const seg2=seg.slice(0,60);x=seg2.match(/(\d{1,2},?\d{0,3}(?:\.\d{1,2})?)/);if(x){const v=x[1].replace(/,(?=\d{3}(?!\d))/g,'').replace(',','.');const n=parseFloat(v);if(!(n>=1900&&n<=2100))return v}}
  let x=T.match(/(?:₹|RS\.?|INR)\s?(\d{1,2},?\d{0,3}(?:\.\d{1,2})?)/i);if(x)return x[1].replace(/,(?=\d{3}(?!\d))/g,'');
  x=T.match(/\b(\d{2,5}(?:\.\d{2})?)\s?\/\s?-/);if(x)return x[1];return null}
 function extract(t){const T=t.replace(/[|]/g,'I'),o={},m=(re)=>{const r=T.match(re);return r?r[1].trim():null};
  let mrp=mrpFrom(T);
- if(mrp){const n=parseFloat(mrp);if(n>=1&&n<=20000)o.mrp=String(n)}
+ if(mrp){const n=parseFloat(mrp);if(n>=1&&n<=20000&&!(n>=1990&&n<=2100&&/^\d{4}$/.test(mrp)))o.mrp=String(n)}
  let b=m(/(?:B\.?\s?NO\.?|BATCH\s?(?:NO\.?)?|B\/N|LOT\s?(?:NO\.?)?)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i);if(b&&/\d/.test(b)&&b.length<=15)o.batch=b.toUpperCase();
  if(!o.batch){const bx=T.match(/\b([A-Z]{1,3})\s?[:\-]\s?(\d{3,6})\b/g);if(bx)for(const s of bx){const mm=s.match(/([A-Z]{1,3})\s?[:\-]\s?(\d{3,6})/);if(!/^(MFG|MFD|EXP|MRP|NO|DT|ED|RS|DOM|PH|TEL|FAX|PIN|LIC|FSSAI|GST|BN)$/.test(mm[1])){o.batch=mm[1]+mm[2];break}}}
  let e=m(new RegExp('(?:EXP(?:IRY)?\\.?(?:\\s?(?:DATE|DT)\\.?)?|E\\.?D\\.?|USE\\s?BY|EXPIRES?)\\s*[:.\\-]?[^\\n0-9]{0,30}?\\s*'+D,'i'));if(e)o.exp=e.toUpperCase().replace(/\s+/g,' ').trim();
  let f=m(new RegExp('(?:MFG\\.?|MFD\\.?|M\\.?F\\.?G\\.?|MANUF[A-Z.]*|DATE\\s?OF\\s?(?:MFG|MANUFACTURE|MANUFACTURING)|D\\.?O\\.?M\\.?)\\s*(?:DATE|DT|ON)?\\.?\\s*[:.\\-]?[^\\n0-9]{0,30}?\\s*'+D,'i'));if(f)o.mfg=f.toUpperCase().replace(/\s+/g,' ').trim();
  let sl=m(/(?:BEST\s*BEFORE|USE\s*(?:WITHIN|BEFORE)|SHELF\s*LIFE|VALID\s*FOR|EXPIRY|EXP\.?)[^0-9\n]{0,30}(\d{1,3})\s*(?:MONTHS?|MTHS?|MOS?)\b/i);if(sl&&+sl>=3&&+sl<=60)o.shelf=sl;
- let br=m(/\b(\d{8,14})\b/);if(br)o.bar=br;
+ let br=m(/\b(\d{12,13})\b/);if(br)o.bar=br;
  return o}
 function addCand(k,v){if(!v)return;const c=S.cand[k]=S.cand[k]||{};c[v]=(c[v]||0)+1}
 function topv(k){const c=S.cand[k];if(!c)return null;let b=null,n=0;for(const v in c)if(c[v]>n){b=v;n=c[v]}return{v:b,n}}
@@ -102,7 +102,7 @@ function start(){if(running)return;running=true;loop()}
 async function loop(){try{await tick()}catch(e){console.log(e)}setTimeout(loop,120)}
 async function tick(){
  const v=$('v');if(!v.videoWidth||S.done){return}
- if(S.complete){await new Promise(r=>setTimeout(r,400));return}
+ if(S.complete){render();await new Promise(r=>setTimeout(r,400));return}
  const c=grab(1100),sh=lap(c),mo=motion(tiny(c));
  if(mo>14||sh<18){msg('✋ Hold still karo (hil raha hai / dhundhla hai)','');await new Promise(r=>setTimeout(r,250));return}
  if(!worker){msg('Padhne ka engine load ho raha hai...','wait');try{worker=await Tesseract.createWorker('eng')}catch(e){msg('Engine load nahi hua, net check karo','');return}}
@@ -132,13 +132,16 @@ st.qty={v:$('qty').value.trim(),ok:$('qty').value.trim()!==''};
  for(const k of ['mrp','batch','exp','bar']){const t=topv(k);st[k]={v:$(k).value,ok:t?t.n>=2:!!$(k).dataset.manual}}
  if(calc){const mt=topv('mfg');st.exp={v:$('exp').value+' (mfg+'+topv('shelf').v+'m)',ok:mt.n>=2}}
  $('chips').innerHTML=F.map(([k,l])=>{const s=st[k];const cls=s.v?(s.ok?'gr':'am'):'';return `<div class="c ${cls}"><b>${l}${k==='bar'?' (optional)':''}</b><span>${s.v||'— khali —'}</span></div>`}).join('');
- $('sug').innerHTML=S.sug.map((x,i)=>`<button onclick="pick(${i})">${x[0][0]} · ${x[0][1]} (${Math.round(x[1]*100)}%)</button>`).join('');
+ let cs=[];const cn=$('company').value,mv=parseFloat($('mrp').value);if(!S.sug.length&&cn&&!$('name').dataset.manual){const L=PRODS.map((p,i)=>[p,i]).filter(([p])=>p[1].toUpperCase()===cn.toUpperCase());let M=L.filter(([p])=>mv&&p[2].includes(Math.round(mv)));cs=(M.length?M:L).slice(0,8)}
+ $('sug').innerHTML=(cs.length?'<div style="width:100%;font-size:12px;color:#9ca3af">'+cn+' ke products'+(mv?' (MRP '+mv+')':'')+': naam chuno</div>':'')+cs.map(([p,i])=>`<button onclick="pickP(${i})">${p[0]}</button>`).join('')+S.sug.map((x,i)=>`<button onclick="pick(${i})">${x[0][0]} · ${x[0][1]} (${Math.round(x[1]*100)}%)</button>`).join('');
+ let al='';for(const [k,l] of [['batch','Batch'],['exp','Expiry'],['mrp','MRP']]){const c=S.cand[k];if(c){const e=Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,4);if(e.length>1)al+='<div style="font-size:12px;color:#9ca3af;margin-top:4px">'+l+' aur padha gaya:</div>'+e.map(([v,n])=>`<button style="flex:none;padding:6px 10px;font-size:13px;background:#374151;margin:2px" onclick="setv('${k}','${v.replace(/'/g,'')}')">${v} (${n})</button>`).join('')}}
+ $('alts').innerHTML=al;
  const miss=REQ.filter(k=>!st[k].v),shaky=REQ.filter(k=>st[k].v&&!st[k].ok);
- S.complete=!miss.length&&!shaky.length;
+ S.complete=!miss.length&&!shaky.length;if(!S.complete&&['company','mrp','batch','exp'].every(k=>st[k].v&&st[k].ok))S.complete=true;
  if(!miss.length&&!shaky.length){msg('✅ Complete! SAVE dabao','ok');beep()}
  else if(!miss.length){msg('Lagbhag ho gaya, '+shaky.map(k=>st[k].v&&F.find(f=>f[0]===k)[1]).join(', ')+' ek aur baar dikhao','wait')}
  else{const back=['mrp','batch','exp'].filter(k=>miss.includes(k)),front=miss.filter(k=>k==='company'||k==='name');
-  if(!front.length&&!back.length)msg('Neeche "Stock me kitna hai" me qty bharo','wait');else msg(front.length?'Saamne ka hissa dikhao ('+front.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)':'Dabba ghumao: peeche/neeche ('+back.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)','')}
+  if(miss.length===1&&miss[0]==='name')msg('Naam khud nahi mila: neeche naam chuno ya 🔍 box se dhundo','wait');else if(!front.length&&!back.length)msg('Neeche "Stock me kitna hai" me qty bharo','wait');else msg(front.length?'Saamne ka hissa dikhao ('+front.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)':'Dabba ghumao: peeche/neeche ('+back.map(k=>F.find(f=>f[0]===k)[1]).join(', ')+' chahiye)','')}
  $('ph').innerHTML=(S.best.front.p?'<img class="ph" src="'+S.best.front.p+'">':'')+(S.best.back.p?'<img class="ph" src="'+S.best.back.p+'">':'');
  const dp=dupOf();if(dp){msg('⚠ Ye product PEHLE SCAN ho chuka hai: '+dp.name+(dp.batch?' (batch '+dp.batch+')':'')+' — '+(dp.scanner||'koi')+', '+String(dp.created_at||'').slice(0,10)+'. Doosra dabba lo','')}
  $('sv').disabled=!$('name').value.trim()||$('qty').value.trim()===''}
@@ -146,6 +149,7 @@ let beeped=false;function beep(){if(beeped)return;beeped=true;try{navigator.vibr
 document.addEventListener('DOMContentLoaded',()=>{});
 $('q').addEventListener('input',()=>{const w=$('q').value.toUpperCase().split(/\s+/).filter(x=>x);if(!w.length){$('qr').innerHTML='';return}const L=PRODS.map((p,i)=>[p,i]).filter(([p])=>{const s=(p[0]+' '+p[1]).toUpperCase();return w.every(x=>s.includes(x))}).slice(0,8);$('qr').innerHTML=L.map(([p,i])=>`<button style="display:block;width:100%;margin:3px 0;padding:10px;font-size:14px;background:#374151;text-align:left" onclick="pickP(${i})">${p[0]} <span style="opacity:.7">· ${p[1]}${p[2].length?' · MRP '+p[2].join('/'):''}</span></button>`).join('')||'<div style="font-size:13px;color:#9ca3af">Kuch nahi mila</div>'});
 function pickP(i){const p=PRODS[i];$('name').value=p[0];$('name').dataset.manual='1';$('company').value=p[1];$('company').dataset.manual='1';if(p[2].length===1&&!$('mrp').value){$('mrp').value=p[2][0]}$('q').value='';$('qr').innerHTML='';render()}
+function setv(k,v){$(k==='exp'?'exp':k).value=v;$(k==='exp'?'exp':k).dataset.manual='1';render()}
 function pick(i){const p=S.sug[i][0];$('name').value=p[0];$('name').dataset.manual='1';$('company').value=p[1];$('company').dataset.manual='1';render()}
 document.addEventListener('input',e=>{if(e.target.tagName==='INPUT')e.target.dataset.manual='1'});
 function resetAll(){fresh();prev=null;beeped=false;['name','company','mrp','batch','exp','mfg','bar','note','qty'].forEach(i=>{$(i).value='';delete $(i).dataset.manual});$('ph').innerHTML='';$('chips').innerHTML='';$('sug').innerHTML='';msg('Naya product dikhao','');render()}
